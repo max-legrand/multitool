@@ -39,7 +39,7 @@ pub const RequestArgs = struct {
     url: []const u8,
     method: std.http.Method,
     body: ?[]u8,
-    headers: []std.http.Header,
+    headers: []const std.http.Header,
 };
 
 pub fn makeRequest(allocator: std.mem.Allocator, args: RequestArgs) ![]u8 {
