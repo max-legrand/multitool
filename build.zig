@@ -3,13 +3,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // const zul = b.dependency("zul", .{});
-    const dep_curl = b.dependency("curl", .{});
+    const dep_curl = b.dependency("curl", .{
+        .target = target,
+        .optimize = optimize,
+    });
     const mod = b.addModule("multitool", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .imports = &.{
-            // .{ .name = "zul", .module = zul.module("zul") },
             .{ .name = "curl", .module = dep_curl.module("curl") },
         },
     });
