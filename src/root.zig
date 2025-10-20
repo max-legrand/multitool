@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const curl = @import("curl");
 
 var g_stopFunc: *const fn () void = undefined;
 
@@ -37,40 +38,77 @@ pub fn setAbortSignalHandler(stopFunc: fn () void) !void {
 
 pub const RequestArgs = struct {
     url: []const u8,
-    method: std.http.Method,
-    body: ?[]u8,
-    headers: []const std.http.Header,
+    method: curl.Easy.Method,
+    body: ?[]u8 = null,
+    headers: []const std.http.Header = &[0]std.http.Header{},
+    allowed_statuses: ?[]u16 = null,
 };
 
-pub fn makeRequest(allocator: std.mem.Allocator, args: RequestArgs) ![]u8 {
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
+pub const Response = struct {
+    status_code: u16,
+    body: ?[]u8,
 
-    const uri = try std.Uri.parse(args.url);
-
-    var request = try client.request(args.method, uri, .{});
-    defer request.deinit();
-    request.extra_headers = args.headers;
-
-    if (args.body) |body| {
-        try request.sendBodyComplete(body);
-    } else {
-        try request.sendBodiless();
+    pub fn deinit(self: *Response, allocator: std.mem.Allocator) void {
+        if (self.body) |body| {
+            allocator.free(body);
+        }
+        allocator.destroy(self);
     }
-    var response = try request.receiveHead(&.{});
+};
 
-    var transfer_buf: [1024 * 1024]u8 = undefined;
-    var decompress: std.http.Decompress = undefined;
-    var decompress_buf: [std.compress.flate.max_window_len]u8 = undefined;
+pub fn makeRequest(allocator: std.mem.Allocator, args: RequestArgs, response: *Response) !void {
+    const ca_bundle = try curl.allocCABundle(allocator);
+    defer ca_bundle.deinit();
 
-    const reader = response.readerDecompressing(
-        &transfer_buf,
-        &decompress,
-        &decompress_buf,
+    const c = try curl.Easy.init(.{
+        .ca_bundle = ca_bundle,
+    });
+    defer c.deinit();
+
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+
+    const c_str_url = try allocator.dupeZ(u8, args.url);
+    defer allocator.free(c_str_url);
+
+    const c_headers = try allocator.alloc([:0]const u8, args.headers.len);
+    defer {
+        for (c_headers) |header| {
+            allocator.free(header);
+        }
+        allocator.free(c_headers);
+    }
+    for (args.headers, 0..) |header, i| {
+        c_headers[i] = try std.fmt.allocPrintSentinel(allocator, "{s}: {s}", .{ header.name, header.value }, 0);
+    }
+
+    const fetch_response = try c.fetch(
+        c_str_url,
+        .{
+            .method = args.method,
+            .body = args.body,
+            .headers = c_headers,
+            .writer = &writer.writer,
+        },
     );
 
-    const response_body = try reader.allocRemaining(allocator, .unlimited);
-    return response_body;
+    response.* = .{
+        .status_code = @intCast(fetch_response.status_code),
+        .body = try writer.toOwnedSlice(),
+    };
+
+    if (args.allowed_statuses) |statuses| {
+        var allowed = false;
+        for (statuses) |status| {
+            if (fetch_response.status_code == @as(i32, @intCast(status))) {
+                allowed = true;
+                break;
+            }
+        }
+        if (!allowed) {
+            return error.InvalidStatusCode;
+        }
+    }
 }
 
 pub fn openResource(allocator: std.mem.Allocator, file_or_url: []const u8) !void {

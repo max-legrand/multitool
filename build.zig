@@ -2,9 +2,16 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    // const zul = b.dependency("zul", .{});
+    const dep_curl = b.dependency("curl", .{});
     const mod = b.addModule("multitool", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
+        .imports = &.{
+            // .{ .name = "zul", .module = zul.module("zul") },
+            .{ .name = "curl", .module = dep_curl.module("curl") },
+        },
     });
 
     const exe_mod = b.createModule(.{
@@ -19,6 +26,7 @@ pub fn build(b: *std.Build) void {
         .name = "multitool",
         .root_module = exe_mod,
     });
+    exe.linkLibC();
 
     b.installArtifact(exe);
     const run_step = b.step("run", "Run the app");
