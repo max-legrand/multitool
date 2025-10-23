@@ -47,11 +47,17 @@ pub const RequestArgs = struct {
 pub const Response = struct {
     status_code: u16,
     body: ?[]u8,
+    headers: []std.http.Header,
 
     pub fn deinit(self: *Response, allocator: std.mem.Allocator) void {
         if (self.body) |body| {
             allocator.free(body);
         }
+        for (self.headers) |header| {
+            allocator.free(header.name);
+            allocator.free(header.value);
+        }
+        allocator.free(self.headers);
         allocator.destroy(self);
     }
 };
@@ -92,9 +98,19 @@ pub fn makeRequest(allocator: std.mem.Allocator, args: RequestArgs, response: *R
         },
     );
 
+    var headers = std.ArrayList(std.http.Header).empty;
+    var header_iter = try fetch_response.iterateHeaders(.{});
+    while (try header_iter.next()) |header| {
+        try headers.append(allocator, std.http.Header{
+            .name = try allocator.dupe(u8, header.name),
+            .value = try allocator.dupe(u8, header.get()),
+        });
+    }
+
     response.* = .{
         .status_code = @intCast(fetch_response.status_code),
         .body = try writer.toOwnedSlice(),
+        .headers = try headers.toOwnedSlice(allocator),
     };
 
     if (args.allowed_statuses) |statuses| {

@@ -20,4 +20,9 @@ pub fn main() !void {
         result,
     );
     std.debug.print("Response body: {s}\n", .{result.body.?});
+
+    std.debug.print("Response headers:\n", .{});
+    for (result.headers) |header| {
+        std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
+    }
 }
