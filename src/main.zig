@@ -25,4 +25,23 @@ pub fn main() !void {
     for (result.headers) |header| {
         std.debug.print("  {s}: {s}\n", .{ header.name, header.value });
     }
+
+    var multi = try multitool.MultiRequest.init(allocator);
+    defer multi.deinit();
+
+    try multi.addRequest(.{ .url = "https://jsonplaceholder.typicode.com/todos/1" });
+    try multi.addRequest(.{ .url = "https://jsonplaceholder.typicode.com/todos/2" });
+    try multi.addRequest(.{ .url = "https://jsonplaceholder.typicode.com/todos/3" });
+
+    try multi.perform();
+    const results = try multi.getResults();
+    defer allocator.free(results);
+
+    std.debug.print("Multi-request responses:\n", .{});
+    for (results, 0..) |*multi_result, index| {
+        if (multi_result.body) |body| {
+            std.debug.print("  [{d}] {s}\n", .{ index, body });
+        }
+        multi_result.deinit(allocator);
+    }
 }
